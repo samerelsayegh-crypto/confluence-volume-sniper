@@ -18,11 +18,14 @@ class ConfluenceVolumeSniper:
             if interval == '1m':
                 period = '7d'
             elif interval in ['2m', '5m', '15m', '30m', '90m']:
-                if period in ['90d', '1y', '2y', '5y', '10y', 'max', 'ytd'] or (period.endswith('d') and period[:-1].isdigit() and int(period[:-1]) > 60):
+                # The yfinance API strict limit for intraday <= 90m is 60d
+                # Force strictly to 60d if a larger period like 1y, 2y, 90d is requested
+                if period not in ['1d', '5d', '1mo']:
                     period = '60d'
             elif interval in ['60m', '1h']:
-                if period in ['5y', '10y', 'max'] or (period.endswith('d') and period[:-1].isdigit() and int(period[:-1]) > 730):
-                    period = '2y'
+                # The yfinance limit for 1h is 730d
+                if period not in ['1d', '5d', '1mo', '3mo', '6mo', '1y']:
+                    period = '730d'
 
             df = yf.download(self.symbol, interval=interval, period=period, progress=False)
             if df.empty:

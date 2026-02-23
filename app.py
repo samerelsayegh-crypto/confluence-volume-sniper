@@ -270,8 +270,25 @@ elif page == "Stock Testing":
                         css_class = "status-orange"
                         message = f"🟡 Moving averages intertwined. Market in transition or choppy sideways."
                     
+                    # Dashboard Logic: Price vs MAs
+                    if close_price > ema9 and close_price > ema20 and close_price > wma50:
+                        price_status = "UPTREND"
+                        price_css = "status-green"
+                        price_msg = f"🟢 Current Price (${close_price:.2f}) is strictly ABOVE all 3 MAs."
+                    elif close_price < ema9 and close_price < ema20 and close_price < wma50:
+                        price_status = "DOWNTREND"
+                        price_css = "status-red"
+                        price_msg = f"🔴 Current Price (${close_price:.2f}) is strictly BELOW all 3 MAs."
+                    else:
+                        price_status = "MIXED"
+                        price_css = "status-orange"
+                        price_msg = f"🟡 Current Price (${close_price:.2f}) is intertwined with MAs (Mixed Signals)."
+
                     st.markdown("### Visual Status Dashboard")
+                    st.markdown("#### 1. Moving Average Stack (Trend Direction)")
                     st.markdown(f'<div class="{css_class}" style="text-align: center; font-size: 20px;">{message}</div>', unsafe_allow_html=True)
+                    st.markdown("#### 2. Price Position vs Averages")
+                    st.markdown(f'<div class="{price_css}" style="text-align: center; font-size: 20px;">{price_msg}</div>', unsafe_allow_html=True)
                     
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric(f"{test_symbol} Current Price", f"${close_price:.2f}")

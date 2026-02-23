@@ -209,17 +209,29 @@ elif page == "Market Analytics":
 # --- Page 3: Stock Testing ---
 # =====================================================================
 elif page == "Stock Testing":
-    st.title("🧪 Stock Testing: QQQ 5-Minute Monitor")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Testing Parameters")
+    test_symbol = st.sidebar.text_input("Test Ticker", value="QQQ").upper()
+    test_interval = st.sidebar.selectbox("Test Timeframe", ["5m", "15m", "1h", "1d"], index=0)
+    
+    st.title(f"🧪 Stock Testing: {test_symbol} {test_interval} Monitor")
     st.markdown("Calculates the 9 EMA, 20 EMA, and 50 WMA to determine current market status.")
     
     if st.button("Run Monitor Update", type="primary"):
-        with st.spinner("Fetching QQQ 5m data..."):
+        with st.spinner(f"Fetching {test_symbol} {test_interval} data..."):
             try:
-                # yfinance limits 5m data to 60 days
-                df = yf.download("QQQ", interval="5m", period="60d", progress=False)
+                # Determine max safe period for yfinance based on interval
+                if test_interval in ["5m", "15m"]:
+                    test_period = "60d"
+                elif test_interval == "1h":
+                    test_period = "730d"
+                else:
+                    test_period = "2y"
+                    
+                df = yf.download(test_symbol, interval=test_interval, period=test_period, progress=False)
                 
                 if df.empty:
-                    st.error("Failed to fetch QQQ data. Current market might be closed or hit rate limits.")
+                    st.error(f"Failed to fetch {test_symbol} data. Current market might be closed or hit rate limits.")
                 else:
                     # Format columns (yfinance sometimes returns MultiIndex columns if single ticker downloaded)
                     if isinstance(df.columns, pd.MultiIndex):
@@ -248,28 +260,28 @@ elif page == "Stock Testing":
                     if ema9 > ema20 and ema20 > wma50:
                         status = "UPTREND"
                         css_class = "status-green"
-                        message = "🟢 9 EMA > 20 EMA > 50 WMA. Perfect Bullish Stack Active."
+                        message = f"🟢 9 EMA > 20 EMA > 50 WMA. Perfect Bullish Stack Active."
                     elif ema9 < ema20 and ema20 < wma50:
                         status = "DOWNTREND"
                         css_class = "status-red"
-                        message = "🔴 9 EMA < 20 EMA < 50 WMA. Perfect Bearish Stack Active."
+                        message = f"🔴 9 EMA < 20 EMA < 50 WMA. Perfect Bearish Stack Active."
                     else:
                         status = "CHOP / TRANSITION"
                         css_class = "status-orange"
-                        message = "🟡 Moving averages intertwined. Market in transition or choppy sideways."
+                        message = f"🟡 Moving averages intertwined. Market in transition or choppy sideways."
                     
                     st.markdown("### Visual Status Dashboard")
                     st.markdown(f'<div class="{css_class}" style="text-align: center; font-size: 20px;">{message}</div>', unsafe_allow_html=True)
                     
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("QQQ Current Price", f"${close_price:.2f}")
+                    c1.metric(f"{test_symbol} Current Price", f"${close_price:.2f}")
                     c2.metric("9 EMA", f"{ema9:.2f}")
                     c3.metric("20 EMA", f"{ema20:.2f}")
                     c4.metric("50 WMA", f"{wma50:.2f}")
                     
                     st.markdown("---")
-                    st.subheader("Raw Technical Data (Last 5 periods)")
+                    st.subheader(f"Raw Technical Data (Last 5 periods)")
                     st.dataframe(df[['close', 'EMA_9', 'EMA_20', 'WMA_50']].dropna().tail(5), use_container_width=True)
                     
             except Exception as e:
-                st.error(f"Error executing QQQ monitor: {e}")
+                st.error(f"Error executing {test_symbol} monitor: {e}")

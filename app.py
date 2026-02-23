@@ -896,7 +896,7 @@ elif page == "Signal 5 - PM High / Low Prices":
                     timeframe=TimeFrame(1, TimeFrameUnit.Minute),
                     start=start_dt,
                     end=now,
-                    feed=DataFeed.IEX # IEX has some extended hours data, SIP is better if available, but IEX handles basic requests
+                    feed=DataFeed.SIP # Changed to SIP to capture full market PM volume and correct High/Low wicks
                 )
                 
                 bars = client.get_stock_bars(req)

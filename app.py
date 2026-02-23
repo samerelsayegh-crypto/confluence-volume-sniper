@@ -415,3 +415,6 @@ elif page == "Stock Testing":
                         display_df = hist_df[['close', 'EMA_9', 'EMA_20', 'WMA_50', 'WMA_100', 'WMA_200']].tail(15)
                         st.dataframe(display_df.style.format("{:.2f}"), use_container_width=True)
                         
+                        # Add Data Source Attribution
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.info("ℹ️ **Data Source:** Raw market data and historical pricing provided by the [Yahoo Finance API (yfinance)](https://finance.yahoo.com/). Moving averages are calculated locally via Pandas.")

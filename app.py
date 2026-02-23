@@ -246,17 +246,27 @@ elif page == "Stock Testing":
                     df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
                     
                     # Calculate 50 WMA
-                    weights = np.arange(1, 51)
-                    df['WMA_50'] = df['close'].rolling(50).apply(lambda prices: np.dot(prices, weights)/weights.sum(), raw=True)
+                    weights_50 = np.arange(1, 51)
+                    df['WMA_50'] = df['close'].rolling(50).apply(lambda prices: np.dot(prices, weights_50)/weights_50.sum(), raw=True)
+                    
+                    # Calculate 100 WMA
+                    weights_100 = np.arange(1, 101)
+                    df['WMA_100'] = df['close'].rolling(100).apply(lambda prices: np.dot(prices, weights_100)/weights_100.sum(), raw=True)
+                    
+                    # Calculate 200 WMA
+                    weights_200 = np.arange(1, 201)
+                    df['WMA_200'] = df['close'].rolling(200).apply(lambda prices: np.dot(prices, weights_200)/weights_200.sum(), raw=True)
                     
                     # Get latest values for visual dashboard
                     latest = df.dropna().iloc[-1]
                     ema9 = latest['EMA_9']
                     ema20 = latest['EMA_20']
                     wma50 = latest['WMA_50']
+                    wma100 = latest['WMA_100']
+                    wma200 = latest['WMA_200']
                     close_price = latest['close']
                     
-                    # Dashboard Logic (table.new equivalent)
+                    # Dashboard Logic 1: Moving Average Stack
                     if ema9 > ema20 and ema20 > wma50:
                         status = "UPTREND"
                         css_class = "status-green"
@@ -270,7 +280,7 @@ elif page == "Stock Testing":
                         css_class = "status-orange"
                         message = f"🟡 Moving averages intertwined. Market in transition or choppy sideways."
                     
-                    # Dashboard Logic: Price vs MAs
+                    # Dashboard Logic 2: Price vs MAs
                     if close_price > ema9 and close_price > ema20 and close_price > wma50:
                         price_status = "UPTREND"
                         price_css = "status-green"
@@ -284,21 +294,41 @@ elif page == "Stock Testing":
                         price_css = "status-orange"
                         price_msg = f"🟡 Current Price (${close_price:.2f}) is intertwined with MAs (Mixed Signals)."
 
+                    # Dashboard Logic 3: Long-Term Trend (100 vs 200 WMA)
+                    if wma100 > wma200:
+                        lt_status = "UPTREND"
+                        lt_css = "status-green"
+                        lt_msg = f"🟢 Long-Term Bullish: 100 WMA is strictly ABOVE 200 WMA."
+                    elif wma100 < wma200:
+                        lt_status = "DOWNTREND"
+                        lt_css = "status-red"
+                        lt_msg = f"🔴 Long-Term Bearish: 100 WMA is strictly BELOW 200 WMA."
+                    else:
+                        lt_status = "NEUTRAL"
+                        lt_css = "status-orange"
+                        lt_msg = f"🟡 Long-Term Neutral: 100 WMA equals 200 WMA."
+
+
                     st.markdown("### Visual Status Dashboard")
-                    st.markdown("#### 1. Moving Average Stack (Trend Direction)")
+                    st.markdown("#### 1. Short-Term Moving Average Stack (Trend Direction)")
                     st.markdown(f'<div class="{css_class}" style="text-align: center; font-size: 20px;">{message}</div>', unsafe_allow_html=True)
                     st.markdown("#### 2. Price Position vs Averages")
                     st.markdown(f'<div class="{price_css}" style="text-align: center; font-size: 20px;">{price_msg}</div>', unsafe_allow_html=True)
+                    st.markdown("#### 3. Long-Term Trend (100 WMA vs 200 WMA)")
+                    st.markdown(f'<div class="{lt_css}" style="text-align: center; font-size: 20px;">{lt_msg}</div>', unsafe_allow_html=True)
                     
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric(f"{test_symbol} Current Price", f"${close_price:.2f}")
+                    st.markdown("### Current Values")
+                    c1, c2, c3, c4, c5, c6 = st.columns(6)
+                    c1.metric("Price", f"${close_price:.2f}")
                     c2.metric("9 EMA", f"{ema9:.2f}")
                     c3.metric("20 EMA", f"{ema20:.2f}")
                     c4.metric("50 WMA", f"{wma50:.2f}")
+                    c5.metric("100 WMA", f"{wma100:.2f}")
+                    c6.metric("200 WMA", f"{wma200:.2f}")
                     
                     st.markdown("---")
                     st.subheader(f"Raw Technical Data (Last 5 periods)")
-                    st.dataframe(df[['close', 'EMA_9', 'EMA_20', 'WMA_50']].dropna().tail(5), use_container_width=True)
+                    st.dataframe(df[['close', 'EMA_9', 'EMA_20', 'WMA_50', 'WMA_100', 'WMA_200']].dropna().tail(5), use_container_width=True)
                     
             except Exception as e:
                 st.error(f"Error executing {test_symbol} monitor: {e}")

@@ -221,9 +221,11 @@ elif page == "Stock Testing":
                 if df.empty:
                     st.error("Failed to fetch QQQ data. Current market might be closed or hit rate limits.")
                 else:
-                    # If dealing with multi-index columns from recent yfinance versions
+                    # Format columns (yfinance sometimes returns MultiIndex columns if single ticker downloaded)
                     if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.droplevel(1)
+                        df.columns = [col[0].lower() for col in df.columns]
+                    else:
+                        df.columns = [col.lower() for col in df.columns]
                         
                     # Calculate 9 EMA
                     df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()

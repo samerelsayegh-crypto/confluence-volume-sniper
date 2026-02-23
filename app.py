@@ -146,9 +146,14 @@ elif page == "Market Analytics":
     scan_interval = st.sidebar.selectbox("Scan Timeframe", ["15m", "30m", "1h", "1d"], index=3) # Default 1d
     scan_period = st.sidebar.selectbox("Lookback Period", ["60d", "90d", "1y", "2y"], index=3) # Default 2y
     
-    # Predefined Watchlist
-    default_watchlist = "AAPL, MSFT, TSLA, NVDA, AMZN, META, GOOGL, NFLX, BTC-USD, ETH-USD, SPY, QQQ, JPM, V, WMT"
-    watchlist_input = st.sidebar.text_area("Watchlist (Comma Separated)", value=default_watchlist, height=100)
+    # Predefined High-Volume Watchlist (Mega-caps, highly liquid tech, high beta)
+    default_watchlist = (
+        "AAPL, NVDA, TSLA, AMD, AMZN, MSFT, META, GOOGL, PLTR, SOFI, "
+        "MARA, COIN, INTC, MU, BAC, C, F, T, VZ, PFE, CSCO, DIS, NFLX, "
+        "UBER, BA, WMT, XOM, CVX, JPM, V, MA, PYPL, SQ, CRM, ADBE, "
+        "QCOM, TXN, AVGO, SBUX, NKE, KO, PEP, MCD, HD, LOW, TGT"
+    )
+    watchlist_input = st.sidebar.text_area("Watchlist (Comma Separated)", value=default_watchlist, height=150)
     
     if st.button("Run System-Wide Scan", use_container_width=True, type="primary"):
         tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]

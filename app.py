@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - High / Low Distances"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - PD High / Low Distances"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -714,9 +714,9 @@ elif page == "Signal 3 - VWAP":
                 st.error(f"Error processing VWAP: {e}")
 
 # =====================================================================
-# --- Page 6: Signal 4 - High / Low Distances ---
+# --- Page 6: Signal 4 - PD High / Low Distances ---
 # =====================================================================
-elif page == "Signal 4 - High / Low Distances":
+elif page == "Signal 4 - PD High / Low Distances":
     st.sidebar.markdown("---")
     st.sidebar.subheader("Watchlist Settings")
     default_wl = "QQQ, SPY, TSLA, NVDA, AAPL, MSFT, META, GOOGL, AMZN, PLTR, COIN, MSTR"

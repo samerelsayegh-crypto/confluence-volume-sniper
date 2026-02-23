@@ -3,6 +3,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import time
+import numpy as np
+import yfinance as yf
 from strategy import ConfluenceVolumeSniper
 
 # =====================================================================
@@ -33,7 +35,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -202,3 +204,70 @@ elif page == "Market Analytics":
                     st.markdown("---")
         else:
             st.markdown('<div class="status-orange">ℹ️ No actionable setups found across the watchlist on this timeframe. The broader market may be choppy or assets are waiting for algorithmic pullbacks.</div>', unsafe_allow_html=True)
+
+# =====================================================================
+# --- Page 3: Stock Testing ---
+# =====================================================================
+elif page == "Stock Testing":
+    st.title("🧪 Stock Testing: QQQ 5-Minute Monitor")
+    st.markdown("Calculates the 9 EMA, 20 EMA, and 50 WMA to determine current market status.")
+    
+    if st.button("Run Monitor Update", type="primary"):
+        with st.spinner("Fetching QQQ 5m data..."):
+            try:
+                # yfinance limits 5m data to 60 days
+                df = yf.download("QQQ", interval="5m", period="60d", progress=False)
+                
+                if df.empty:
+                    st.error("Failed to fetch QQQ data. Current market might be closed or hit rate limits.")
+                else:
+                    # If dealing with multi-index columns from recent yfinance versions
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.droplevel(1)
+                        
+                    # Calculate 9 EMA
+                    df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()
+                    
+                    # Calculate 20 EMA
+                    df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
+                    
+                    # Calculate 50 WMA
+                    weights = np.arange(1, 51)
+                    df['WMA_50'] = df['close'].rolling(50).apply(lambda prices: np.dot(prices, weights)/weights.sum(), raw=True)
+                    
+                    # Get latest values for visual dashboard
+                    latest = df.dropna().iloc[-1]
+                    ema9 = latest['EMA_9']
+                    ema20 = latest['EMA_20']
+                    wma50 = latest['WMA_50']
+                    close_price = latest['close']
+                    
+                    # Dashboard Logic (table.new equivalent)
+                    if ema9 > ema20 and ema20 > wma50:
+                        status = "UPTREND"
+                        css_class = "status-green"
+                        message = "🟢 9 EMA > 20 EMA > 50 WMA. Perfect Bullish Stack Active."
+                    elif ema9 < ema20 and ema20 < wma50:
+                        status = "DOWNTREND"
+                        css_class = "status-red"
+                        message = "🔴 9 EMA < 20 EMA < 50 WMA. Perfect Bearish Stack Active."
+                    else:
+                        status = "CHOP / TRANSITION"
+                        css_class = "status-orange"
+                        message = "🟡 Moving averages intertwined. Market in transition or choppy sideways."
+                    
+                    st.markdown("### Visual Status Dashboard")
+                    st.markdown(f'<div class="{css_class}" style="text-align: center; font-size: 20px;">{message}</div>', unsafe_allow_html=True)
+                    
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("QQQ Current Price", f"${close_price:.2f}")
+                    c2.metric("9 EMA", f"{ema9:.2f}")
+                    c3.metric("20 EMA", f"{ema20:.2f}")
+                    c4.metric("50 WMA", f"{wma50:.2f}")
+                    
+                    st.markdown("---")
+                    st.subheader("Raw Technical Data (Last 5 periods)")
+                    st.dataframe(df[['close', 'EMA_9', 'EMA_20', 'WMA_50']].dropna().tail(5), use_container_width=True)
+                    
+            except Exception as e:
+                st.error(f"Error executing QQQ monitor: {e}")

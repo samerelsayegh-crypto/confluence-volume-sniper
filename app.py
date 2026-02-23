@@ -212,53 +212,57 @@ elif page == "Stock Testing":
     st.sidebar.markdown("---")
     st.sidebar.subheader("Testing Parameters")
     test_symbol = st.sidebar.text_input("Test Ticker", value="QQQ").upper()
-    test_interval = st.sidebar.selectbox("Test Timeframe", ["5m", "15m", "1h", "1d"], index=0)
     
-    st.title(f"🧪 Stock Testing: {test_symbol} {test_interval} Monitor")
-    st.markdown("Calculates the 9 EMA, 20 EMA, and 50 WMA to determine current market status.")
+    st.title(f"🧪 Stock Testing: {test_symbol} Multi-Timeframe Monitor")
+    st.markdown("Real-time automated evaluation across 5m, 15m, 1h, and 1d timeframes.")
     
-    if st.button("Run Monitor Update", type="primary"):
-        with st.spinner(f"Fetching {test_symbol} {test_interval} data..."):
-            try:
-                # Determine max safe period for yfinance based on interval
-                if test_interval in ["5m", "15m"]:
-                    test_period = "60d"
-                elif test_interval == "1h":
-                    test_period = "730d"
-                else:
-                    test_period = "2y"
+    if st.button("Run Multi-Timeframe Scan", type="primary"):
+        with st.spinner(f"Fetching and analyzing multi-timeframe data for {test_symbol}..."):
+            
+            timeframes = ["5m", "15m", "1h", "1d"]
+            results = {}
+            
+            for tf in timeframes:
+                try:
+                    # Determine period
+                    if tf in ["5m", "15m"]:
+                        test_period = "60d"
+                    elif tf == "1h":
+                        test_period = "730d"
+                    else:
+                        test_period = "2y"
+                        
+                    df = yf.download(test_symbol, interval=tf, period=test_period, progress=False)
                     
-                df = yf.download(test_symbol, interval=test_interval, period=test_period, progress=False)
-                
-                if df.empty:
-                    st.error(f"Failed to fetch {test_symbol} data. Current market might be closed or hit rate limits.")
-                else:
-                    # Format columns (yfinance sometimes returns MultiIndex columns if single ticker downloaded)
+                    if df.empty:
+                        results[tf] = {"error": True}
+                        continue
+                        
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = [col[0].lower() for col in df.columns]
                     else:
                         df.columns = [col.lower() for col in df.columns]
                         
-                    # Calculate 9 EMA
+                    # Calculate MAs
                     df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()
-                    
-                    # Calculate 20 EMA
                     df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
                     
-                    # Calculate 50 WMA
                     weights_50 = np.arange(1, 51)
                     df['WMA_50'] = df['close'].rolling(50).apply(lambda prices: np.dot(prices, weights_50)/weights_50.sum(), raw=True)
                     
-                    # Calculate 100 WMA
                     weights_100 = np.arange(1, 101)
                     df['WMA_100'] = df['close'].rolling(100).apply(lambda prices: np.dot(prices, weights_100)/weights_100.sum(), raw=True)
                     
-                    # Calculate 200 WMA
                     weights_200 = np.arange(1, 201)
                     df['WMA_200'] = df['close'].rolling(200).apply(lambda prices: np.dot(prices, weights_200)/weights_200.sum(), raw=True)
                     
-                    # Get latest values for visual dashboard
-                    latest = df.dropna().iloc[-1]
+                    # Ensure we have enough data points to compute the 200 WMA
+                    df_clean = df.dropna()
+                    if len(df_clean) == 0:
+                        results[tf] = {"error": True}
+                        continue
+                        
+                    latest = df_clean.iloc[-1]
                     ema9 = latest['EMA_9']
                     ema20 = latest['EMA_20']
                     wma50 = latest['WMA_50']
@@ -266,85 +270,103 @@ elif page == "Stock Testing":
                     wma200 = latest['WMA_200']
                     close_price = latest['close']
                     
-                    # Dashboard Logic 1: Moving Average Stack
+                    res_tf = {"error": False, "price": close_price}
+                    
+                    # Logic 1: Short-Term Stack
                     if ema9 > ema20 and ema20 > wma50:
-                        status = "UPTREND"
-                        css_class = "status-green"
-                        message = f"🟢 9 EMA > 20 EMA > 50 WMA. Perfect Bullish Stack Active."
+                        res_tf["st_stack"] = {"status": "UPTREND", "css": "status-green", "icon": "🟢"}
                     elif ema9 < ema20 and ema20 < wma50:
-                        status = "DOWNTREND"
-                        css_class = "status-red"
-                        message = f"🔴 9 EMA < 20 EMA < 50 WMA. Perfect Bearish Stack Active."
+                        res_tf["st_stack"] = {"status": "DOWNTREND", "css": "status-red", "icon": "🔴"}
                     else:
-                        status = "CHOP / TRANSITION"
-                        css_class = "status-orange"
-                        message = f"🟡 Moving averages intertwined. Market in transition or choppy sideways."
-                    
-                    # Dashboard Logic 2: Price vs MAs
+                        res_tf["st_stack"] = {"status": "CHOP", "css": "status-orange", "icon": "🟡"}
+                        
+                    # Logic 2: Price vs ST MAs
                     if close_price > ema9 and close_price > ema20 and close_price > wma50:
-                        price_status = "UPTREND"
-                        price_css = "status-green"
-                        price_msg = f"🟢 Current Price (${close_price:.2f}) is strictly ABOVE all 3 MAs."
+                        res_tf["price_st"] = {"status": "UPTREND", "css": "status-green", "icon": "🟢"}
                     elif close_price < ema9 and close_price < ema20 and close_price < wma50:
-                        price_status = "DOWNTREND"
-                        price_css = "status-red"
-                        price_msg = f"🔴 Current Price (${close_price:.2f}) is strictly BELOW all 3 MAs."
+                        res_tf["price_st"] = {"status": "DOWNTREND", "css": "status-red", "icon": "🔴"}
                     else:
-                        price_status = "MIXED"
-                        price_css = "status-orange"
-                        price_msg = f"🟡 Current Price (${close_price:.2f}) is intertwined with MAs (Mixed Signals)."
-
-                    # Dashboard Logic 3: Long-Term Trend (100 vs 200 WMA)
+                        res_tf["price_st"] = {"status": "MIXED", "css": "status-orange", "icon": "🟡"}
+                        
+                    # Logic 3: Long-Term Trend
                     if wma100 > wma200:
-                        lt_status = "UPTREND"
-                        lt_css = "status-green"
-                        lt_msg = f"🟢 Long-Term Bullish: 100 WMA is strictly ABOVE 200 WMA."
+                        res_tf["lt_trend"] = {"status": "UPTREND", "css": "status-green", "icon": "🟢"}
                     elif wma100 < wma200:
-                        lt_status = "DOWNTREND"
-                        lt_css = "status-red"
-                        lt_msg = f"🔴 Long-Term Bearish: 100 WMA is strictly BELOW 200 WMA."
+                        res_tf["lt_trend"] = {"status": "DOWNTREND", "css": "status-red", "icon": "🔴"}
                     else:
-                        lt_status = "NEUTRAL"
-                        lt_css = "status-orange"
-                        lt_msg = f"🟡 Long-Term Neutral: 100 WMA equals 200 WMA."
-
-                    # Dashboard Logic 4: Price vs Long-Term MAs
+                        res_tf["lt_trend"] = {"status": "NEUTRAL", "css": "status-orange", "icon": "🟡"}
+                        
+                    # Logic 4: Price vs LT Trend
                     if close_price > wma100 and close_price > wma200:
-                        pt_status = "UPTREND"
-                        pt_css = "status-green"
-                        pt_msg = f"🟢 Price vs LT Trend: Current Price is strictly ABOVE both 100 and 200 WMA."
+                        res_tf["price_lt"] = {"status": "UPTREND", "css": "status-green", "icon": "🟢"}
                     elif close_price < wma100 and close_price < wma200:
-                        pt_status = "DOWNTREND"
-                        pt_css = "status-red"
-                        pt_msg = f"🔴 Price vs LT Trend: Current Price is strictly BELOW both 100 and 200 WMA."
+                        res_tf["price_lt"] = {"status": "DOWNTREND", "css": "status-red", "icon": "🔴"}
                     else:
-                        pt_status = "MIXED"
-                        pt_css = "status-orange"
-                        pt_msg = f"🟡 Price vs LT Trend: Current Price is IN BETWEEN 100 WMA and 200 WMA."
-
-
-                    st.markdown("### Visual Status Dashboard")
-                    st.markdown("#### 1. Short-Term Moving Average Stack (Trend Direction)")
-                    st.markdown(f'<div class="{css_class}" style="text-align: center; font-size: 20px;">{message}</div>', unsafe_allow_html=True)
-                    st.markdown("#### 2. Price Position vs Averages")
-                    st.markdown(f'<div class="{price_css}" style="text-align: center; font-size: 20px;">{price_msg}</div>', unsafe_allow_html=True)
-                    st.markdown("#### 3. Long-Term Trend (100 WMA vs 200 WMA)")
-                    st.markdown(f'<div class="{lt_css}" style="text-align: center; font-size: 20px;">{lt_msg}</div>', unsafe_allow_html=True)
-                    st.markdown("#### 4. Price Position vs Long-Term Trend")
-                    st.markdown(f'<div class="{pt_css}" style="text-align: center; font-size: 20px;">{pt_msg}</div>', unsafe_allow_html=True)
+                        res_tf["price_lt"] = {"status": "MIXED", "css": "status-orange", "icon": "🟡"}
+                        
+                    results[tf] = res_tf
                     
-                    st.markdown("### Current Values")
-                    c1, c2, c3, c4, c5, c6 = st.columns(6)
-                    c1.metric("Price", f"${close_price:.2f}")
-                    c2.metric("9 EMA", f"{ema9:.2f}")
-                    c3.metric("20 EMA", f"{ema20:.2f}")
-                    c4.metric("50 WMA", f"{wma50:.2f}")
-                    c5.metric("100 WMA", f"{wma100:.2f}")
-                    c6.metric("200 WMA", f"{wma200:.2f}")
+                except Exception as e:
+                    st.error(f"Error processing {tf}: {e}")
+                    results[tf] = {"error": True}
                     
-                    st.markdown("---")
-                    st.subheader(f"Raw Technical Data (Last 5 periods)")
-                    st.dataframe(df[['close', 'EMA_9', 'EMA_20', 'WMA_50', 'WMA_100', 'WMA_200']].dropna().tail(5), use_container_width=True)
-                    
-            except Exception as e:
-                st.error(f"Error executing {test_symbol} monitor: {e}")
+            st.markdown("### Unified Multi-Timeframe Grid")
+            
+            # Helper function to render a cell
+            def render_cell(res_data, key):
+                if res_data.get("error"):
+                    return '<div style="padding:15px; border-radius:8px; background-color:#f5f5f5; color:#999; text-align:center; font-weight:bold; height: 100%;">N/A</div>'
+                
+                cell = res_data[key]
+                # Reusing the existing CSS classes for styling backgrounds
+                return f'<div class="{cell["css"]}" style="text-align:center; padding:15px; margin-bottom:0px; height: 100%; display: flex; align-items: center; justify-content: center;">{cell["icon"]} {cell["status"]}</div>'
+                
+            # Create Grid using st.columns
+            # Layout: [Metric Name (2)] [5m (1)] [15m (1)] [1h (1)] [1d (1)]
+            header_cols = st.columns([2, 1, 1, 1, 1])
+            header_cols[0].markdown("**Indicator / Timeframe**")
+            header_cols[1].markdown('<div style="text-align:center;"><b>5m</b></div>', unsafe_allow_html=True)
+            header_cols[2].markdown('<div style="text-align:center;"><b>15m</b></div>', unsafe_allow_html=True)
+            header_cols[3].markdown('<div style="text-align:center;"><b>1h</b></div>', unsafe_allow_html=True)
+            header_cols[4].markdown('<div style="text-align:center;"><b>1d</b></div>', unsafe_allow_html=True)
+            
+            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+            
+            # Row 1
+            r1 = st.columns([2, 1, 1, 1, 1], vertical_alignment="center")
+            r1[0].markdown("**1. Short-Term MA Stack**<br/><small>(9 EMA vs 20 EMA vs 50 WMA)</small>", unsafe_allow_html=True)
+            for i, tf in enumerate(timeframes):
+                r1[i+1].markdown(render_cell(results[tf], "st_stack"), unsafe_allow_html=True)
+                
+            st.markdown("<br/>", unsafe_allow_html=True)
+            
+            # Row 2
+            r2 = st.columns([2, 1, 1, 1, 1], vertical_alignment="center")
+            r2[0].markdown("**2. Price vs Averages**<br/><small>(Current Price vs 9, 20, 50)</small>", unsafe_allow_html=True)
+            for i, tf in enumerate(timeframes):
+                r2[i+1].markdown(render_cell(results[tf], "price_st"), unsafe_allow_html=True)
+                
+            st.markdown("<br/>", unsafe_allow_html=True)
+                
+            # Row 3
+            r3 = st.columns([2, 1, 1, 1, 1], vertical_alignment="center")
+            r3[0].markdown("**3. Long-Term Trend**<br/><small>(100 WMA vs 200 WMA)</small>", unsafe_allow_html=True)
+            for i, tf in enumerate(timeframes):
+                r3[i+1].markdown(render_cell(results[tf], "lt_trend"), unsafe_allow_html=True)
+                
+            st.markdown("<br/>", unsafe_allow_html=True)
+                
+            # Row 4
+            r4 = st.columns([2, 1, 1, 1, 1], vertical_alignment="center")
+            r4[0].markdown("**4. Price vs Long-Term Trend**<br/><small>(Current Price vs 100, 200)</small>", unsafe_allow_html=True)
+            for i, tf in enumerate(timeframes):
+                r4[i+1].markdown(render_cell(results[tf], "price_lt"), unsafe_allow_html=True)
+                
+            st.markdown("---")
+            
+            # Print latest prices
+            st.markdown("### Current Asset Reference")
+            p_cols = st.columns(4)
+            for i, tf in enumerate(timeframes):
+                if not results[tf].get("error"):
+                    p_cols[i].metric(f"{test_symbol} Close Price ({tf})", f"${results[tf]['price']:.2f}")

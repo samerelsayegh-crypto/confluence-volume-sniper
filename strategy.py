@@ -1,7 +1,12 @@
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import logging
+from datetime import datetime, timedelta, timezone
+import streamlit as st
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.enums import DataFeed
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -12,34 +17,74 @@ class ConfluenceVolumeSniper:
         self.risk_pct = risk_pct
         
     def fetch_data(self, interval='1h', period='730d'):
-        """Fetches OHLCV data using yfinance."""
+        """Fetches OHLCV data using Alpaca."""
         try:
-            # yfinance valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
-            if interval == '1m':
-                period = '7d'
-            elif interval in ['2m', '5m', '15m', '30m', '90m']:
-                # The yfinance API strict limit for intraday <= 90m is 60d
-                # Force strictly to 60d if a larger period like 1y, 2y, 90d is requested
-                if period not in ['1d', '5d', '1mo']:
-                    period = '60d'
-            elif interval in ['60m', '1h']:
-                # The yfinance limit for 1h is 730d
-                if period not in ['1d', '5d', '1mo', '3mo', '6mo', '1y']:
-                    period = '730d'
-
-            df = yf.download(self.symbol, interval=interval, period=period, progress=False)
-            if df.empty:
-                return pd.DataFrame()
+            alpaca_key = st.secrets["alpaca"]["API_KEY"]
+            alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+            client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
             
-            # Format columns (yfinance sometimes returns MultiIndex columns if single ticker downloaded)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [col[0].lower() for col in df.columns]
+            # Map interval str to Alpaca TimeFrame
+            if interval == '1m':
+                tf = TimeFrame(1, TimeFrameUnit.Minute)
+                lookback_days = 7
+            elif interval == '2m':
+                tf = TimeFrame(2, TimeFrameUnit.Minute)
+                lookback_days = 60
+            elif interval == '5m':
+                tf = TimeFrame(5, TimeFrameUnit.Minute)
+                lookback_days = 60
+            elif interval == '15m':
+                tf = TimeFrame(15, TimeFrameUnit.Minute)
+                lookback_days = 60
+            elif interval == '30m':
+                tf = TimeFrame(30, TimeFrameUnit.Minute)
+                lookback_days = 60
+            elif interval in ['60m', '1h']:
+                tf = TimeFrame(1, TimeFrameUnit.Hour)
+                lookback_days = 730
+            elif interval == '1d':
+                tf = TimeFrame(1, TimeFrameUnit.Day)
+                lookback_days = 730
             else:
-                df.columns = [col.lower() for col in df.columns]
+                tf = TimeFrame(1, TimeFrameUnit.Hour)
+                lookback_days = 30
                 
+            # Override lookback if standard string is provided (heuristic approach)
+            if 'd' in period and period != '730d':
+                try:
+                    lookback_days = int(period.replace('d', ''))
+                except:
+                    pass
+            elif 'y' in period:
+                try:
+                    lookback_days = int(period.replace('y', '')) * 365
+                except:
+                    pass
+
+            now = datetime.now(timezone.utc)
+            start_dt = now - timedelta(days=lookback_days)
+
+            req = StockBarsRequest(
+                symbol_or_symbols=self.symbol,
+                timeframe=tf,
+                start=start_dt,
+                end=now - timedelta(minutes=16), # Free tier is delayed by 15 mins
+                feed=DataFeed.IEX
+            )
+            
+            bars = client.get_stock_bars(req)
+            if not bars or bars.df.empty:
+                return pd.DataFrame()
+                
+            df = bars.df
+            # Alpaca dataframe index is MultiIndex: (symbol, timestamp). 
+            # Drop the symbol level so index is just timestamp
+            df = df.droplevel(0)
+            
+            # alpaca standard columns are already lowercase: close, high, low, open, volume, etc.
             return df
         except Exception as e:
-            logging.error(f"Error fetching data: {e}")
+            logging.error(f"Error fetching data from Alpaca: {e}")
             return pd.DataFrame()
 
     def step1_top_down_analysis(self):

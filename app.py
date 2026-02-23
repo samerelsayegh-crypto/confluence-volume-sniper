@@ -4,9 +4,12 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import time
 import numpy as np
-import yfinance as yf
+from datetime import datetime, timedelta, timezone
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.enums import DataFeed
 from strategy import ConfluenceVolumeSniper
-
 # =====================================================================
 # --- Dashboard Configuration ---
 # =====================================================================
@@ -224,24 +227,42 @@ elif page == "Stock Testing":
             
             for tf in timeframes:
                 try:
-                    # Determine period
-                    if tf in ["5m", "15m"]:
-                        test_period = "60d"
-                    elif tf == "1h":
-                        test_period = "730d"
-                    else:
-                        test_period = "2y"
-                        
-                    df = yf.download(test_symbol, interval=tf, period=test_period, progress=False)
+                    alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                    alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                    client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
                     
-                    if df.empty:
+                    # Map timeframe and lookback
+                    if tf == "5m":
+                        alpaca_tf = TimeFrame(5, TimeFrameUnit.Minute)
+                        lookback_days = 60
+                    elif tf == "15m":
+                        alpaca_tf = TimeFrame(15, TimeFrameUnit.Minute)
+                        lookback_days = 60
+                    elif tf == "1h":
+                        alpaca_tf = TimeFrame(1, TimeFrameUnit.Hour)
+                        lookback_days = 730
+                    else: # 1d
+                        alpaca_tf = TimeFrame(1, TimeFrameUnit.Day)
+                        lookback_days = 730
+                        
+                    now = datetime.now(timezone.utc)
+                    start_dt = now - timedelta(days=lookback_days)
+                    
+                    req = StockBarsRequest(
+                        symbol_or_symbols=test_symbol,
+                        timeframe=alpaca_tf,
+                        start=start_dt,
+                        end=now - timedelta(minutes=16), # Free tier is delayed by 15 mins
+                        feed=DataFeed.IEX
+                    )
+                    
+                    bars = client.get_stock_bars(req)
+                    if not bars or bars.df.empty:
                         results[tf] = {"error": True}
                         continue
                         
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = [col[0].lower() for col in df.columns]
-                    else:
-                        df.columns = [col.lower() for col in df.columns]
+                    df = bars.df.droplevel(0)
+                        
                         
                     # Calculate MAs
                     df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()
@@ -417,4 +438,5 @@ elif page == "Stock Testing":
                         
                         # Add Data Source Attribution
                         st.markdown("<br>", unsafe_allow_html=True)
-                        st.info("ℹ️ **Data Source:** Raw market data and historical pricing provided by the [Yahoo Finance API (yfinance)](https://finance.yahoo.com/). Moving averages are calculated locally via Pandas.")
+                        st.info("ℹ️ **Data Source:** Institutional-grade market data provided by the [Alpaca API](https://alpaca.markets/data). Moving averages are calculated locally via Pandas.")
+

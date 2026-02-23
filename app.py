@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -442,5 +442,148 @@ elif page == "Stock Testing":
                         
                         # Add Data Source Attribution
                         st.markdown("<br>", unsafe_allow_html=True)
-                        st.info("ℹ️ **Data Source:** Institutional-grade market data provided by the [Alpaca API](https://alpaca.markets/data). Moving averages are calculated locally via Pandas.")
 
+# =====================================================================
+# --- Page 4: Signal 2 - 15 Min ORB ---
+# =====================================================================
+elif page == "Signal 2 - 15 Min ORB":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("ORB Parameters")
+    test_symbol = st.sidebar.text_input("Ticker", value="QQQ").upper()
+    
+    st.title(f"🚀 Signal 2: {test_symbol} 15-Minute ORB Strategy")
+    st.markdown("Automated detection of the Opening Range Breakout (09:30 - 09:45 EST). Monitors 5-minute candles for breakout signals.")
+    
+    if st.button("Detect ORB Signals", type="primary"):
+        with st.spinner(f"Analyzing {test_symbol} 5m footprint..."):
+            try:
+                alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+                
+                # Fetch 5-minute data for the last 5 days to ensure we have recent sessions
+                now = datetime.now(timezone.utc)
+                start_dt = now - timedelta(days=5)
+                
+                req = StockBarsRequest(
+                    symbol_or_symbols=test_symbol,
+                    timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+                    start=start_dt,
+                    end=now - timedelta(minutes=16),
+                    feed=DataFeed.IEX
+                )
+                
+                bars = client.get_stock_bars(req)
+                if not bars or bars.df.empty:
+                    st.error("No data found or market is closed.")
+                    st.stop()
+                    
+                df = bars.df.droplevel(0)
+                df.index = df.index.tz_convert('America/New_York')
+                
+                # Group by date to find ORB for each day
+                df['Date'] = df.index.date
+                df['Time'] = df.index.time
+                
+                # Separate into days
+                unique_days = df['Date'].unique()
+                
+                # Get the latest day with data
+                latest_day = unique_days[-1]
+                df_latest_day = df[df['Date'] == latest_day].copy()
+                
+                # Filter strictly to Regular Market Hours just so charts/signals are clean
+                df_latest_day = df_latest_day.between_time('09:30', '16:00')
+                
+                # Filter 09:30 to 09:45 for the Opening Range
+                # 5-min bars: 09:30, 09:35, 09:40. The 09:40 bar closes at 09:45.
+                orb_bars = df_latest_day.between_time('09:30', '09:40')
+                
+                if orb_bars.empty or len(orb_bars) < 3:
+                    st.warning(f"Not enough data to calculate the 15-minute ORB for {latest_day}. Market may just have opened.")
+                    st.stop()
+                    
+                orb_high = orb_bars['high'].max()
+                orb_low = orb_bars['low'].min()
+                
+                # Data *after* the opening range (09:45 onwards)
+                post_orb_bars = df_latest_day.between_time('09:45', '16:00').copy()
+                
+                st.markdown(f"### {test_symbol} ORB Levels ({latest_day})")
+                c1, c2 = st.columns(2)
+                c1.metric("15m ORB High", f"${orb_high:.2f}")
+                c2.metric("15m ORB Low", f"${orb_low:.2f}")
+                
+                st.markdown("---")
+                
+                # Detect Signals
+                signals = []
+                for timestamp, row in post_orb_bars.iterrows():
+                    if row['close'] > orb_high:
+                        signals.append((timestamp, "BULLISH BREAKOUT", row['close'], 'status-green', '🟢'))
+                        # Only take the first signal of the day
+                        break
+                    elif row['close'] < orb_low:
+                        signals.append((timestamp, "BEARISH BREAKDOWN", row['close'], 'status-red', '🔴'))
+                        break
+                        
+                if signals:
+                    sig_time, sig_type, sig_price, css_class, icon = signals[0]
+                    st.markdown(f'<div class="{css_class}">{icon} {sig_type} SIGNAL DETECTED</div>', unsafe_allow_html=True)
+                    st.markdown(f"**Trigger Time:** {sig_time.strftime('%H:%M EST')}")
+                    st.markdown(f"**Trigger Price (5m Close):** ${sig_price:.2f}")
+                else:
+                    st.markdown('<div class="status-orange">🟡 NO SIGNAL: Price is trading within the Opening Range or no 5m candle has closed outside it yet.</div>', unsafe_allow_html=True)
+                    
+                # Plotting
+                st.markdown("---")
+                st.markdown("### Interactive ORB Chart")
+                
+                fig = go.Figure()
+                
+                # Candlesticks
+                fig.add_trace(go.Candlestick(
+                    x=df_latest_day.index, open=df_latest_day['open'], high=df_latest_day['high'], 
+                    low=df_latest_day['low'], close=df_latest_day['close'], name="Price"
+                ))
+                
+                # ORB Lines
+                fig.add_hline(y=orb_high, line_dash="dash", line_color="green", annotation_text="ORB High")
+                fig.add_hline(y=orb_low, line_dash="dash", line_color="red", annotation_text="ORB Low")
+                
+                # Highlight ORB Zone
+                fig.add_vrect(
+                    x0=orb_bars.index[0], x1=orb_bars.index[-1] + timedelta(minutes=5),
+                    fillcolor="LightSalmon", opacity=0.1,
+                    layer="below", line_width=0,
+                    annotation_text="ORB Period", annotation_position="top left"
+                )
+                
+                # Highlight Signal if any
+                if signals:
+                    fig.add_annotation(
+                        x=sig_time, y=sig_price,
+                        text=sig_type,
+                        showarrow=True, arrowhead=1, ax=0, ay=-40 if sig_type == "BULLISH BREAKOUT" else 40,
+                        bgcolor="green" if sig_type == "BULLISH BREAKOUT" else "red",
+                        font=dict(color="white")
+                    )
+
+                fig.update_layout(
+                    height=600, 
+                    xaxis_rangeslider_visible=False,
+                    template="plotly_white",
+                    xaxis_title="Time (EST)",
+                    yaxis_title="Price",
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
+                    
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Raw data
+                with st.expander("View Raw Intraday Data"):
+                    display_df = df_latest_day[['open', 'high', 'low', 'close', 'volume']]
+                    st.dataframe(display_df, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Error processing ORB: {e}")

@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - PD High / Low Distances"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - PD High / Low Distances", "Signal 5 - PM High / Low Prices"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -868,4 +868,94 @@ elif page == "Signal 4 - PD High / Low Distances":
                 
             except Exception as e:
                 st.error(f"Error executing scanner: {e}")
+
+# =====================================================================
+# --- Page 7: Signal 5 - PM High / Low Prices ---
+# =====================================================================
+elif page == "Signal 5 - PM High / Low Prices":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Pre-Market Search")
+    pm_symbol = st.sidebar.text_input("Ticker", value="QQQ").upper()
+    
+    st.title(f"🌅 Signal 5: {pm_symbol} Pre-Market Range")
+    st.markdown("Isolates today's extended hours trading session (04:00 AM - 09:30 AM EST) to extract the absolute PM High and PM Low.")
+    
+    if st.button("Calculate PM Range", type="primary"):
+        with st.spinner(f"Fetching extended hours data for {pm_symbol}..."):
+            try:
+                alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+                
+                # Fetch 1-minute data for the last few days to make sure we capture today's PM session
+                now = datetime.now(timezone.utc)
+                start_dt = now - timedelta(days=5) 
+                
+                req = StockBarsRequest(
+                    symbol_or_symbols=pm_symbol,
+                    timeframe=TimeFrame(1, TimeFrameUnit.Minute),
+                    start=start_dt,
+                    end=now,
+                    feed=DataFeed.IEX # IEX has some extended hours data, SIP is better if available, but IEX handles basic requests
+                )
+                
+                bars = client.get_stock_bars(req)
+                if not bars or bars.df.empty:
+                    st.error("No data found.")
+                    st.stop()
+                    
+                df = bars.df.droplevel(0)
+                
+                # Convert timezone
+                if df.index.tz is None:
+                    df.index = df.index.tz_localize('UTC')
+                df.index = df.index.tz_convert('America/New_York')
+                
+                # Get the latest day with data
+                df['Date'] = df.index.date
+                unique_days = df['Date'].unique()
+                latest_day = unique_days[-1]
+                
+                # Isolate today's data
+                df_latest_day = df[df['Date'] == latest_day].copy()
+                
+                # Filter specifically for Pre-Market window (04:00 AM to 09:30 AM EST)
+                # We use 09:29 to ensure we don't accidentally grab the 09:30 regular market open candle
+                pm_data = df_latest_day.between_time('04:00', '09:29')
+                
+                if pm_data.empty:
+                    st.warning(f"No Pre-Market data recorded for {pm_symbol} on {latest_day}.")
+                    st.stop()
+                    
+                # Calculate Absolute High and Low during the PM session
+                pm_high = float(pm_data['high'].max())
+                pm_low = float(pm_data['low'].min())
+                pm_volume = int(pm_data['volume'].sum())
+                
+                latest_close = float(df_latest_day['close'].iloc[-1])
+                
+                st.markdown(f"### Pre-Market Analytics for {latest_day}")
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Pre-Market High", f"${pm_high:.2f}")
+                c2.metric("Pre-Market Low", f"${pm_low:.2f}")
+                c3.metric("Total PM Volume", f"{pm_volume:,}")
+                
+                st.markdown("---")
+                st.markdown(f"**Current Live Price:** ${latest_close:.2f}")
+                
+                # Determine relationship
+                if latest_close > pm_high:
+                    st.markdown(f'<div class="status-green">🟢 BULLISH: Price (${latest_close:.2f}) is currently trading ABOVE the Pre-Market High (${pm_high:.2f}).</div>', unsafe_allow_html=True)
+                elif latest_close < pm_low:
+                    st.markdown(f'<div class="status-red">🔴 BEARISH: Price (${latest_close:.2f}) is currently trading BELOW the Pre-Market Low (${pm_low:.2f}).</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="status-orange">🟡 NEUTRAL: Price (${latest_close:.2f}) is currently trading INSIDE the Pre-Market range (${pm_low:.2f} - ${pm_high:.2f}).</div>', unsafe_allow_html=True)
+                
+                # Optional details
+                with st.expander("View Raw Pre-Market Time Series"):
+                    st.dataframe(pm_data[['open', 'high', 'low', 'close', 'volume']], use_container_width=True)
+                    
+            except Exception as e:
+                st.error(f"Error fetching PM range: {e}")
 

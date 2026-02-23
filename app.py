@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - PD High / Low Distances", "Signal 5 - PM High / Low Prices"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - PD High / Low Distances", "Signal 5 - PM High / Low Prices", "Support and Resistance"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -983,4 +983,173 @@ elif page == "Signal 5 - PM High / Low Prices":
                     
             except Exception as e:
                 st.error(f"Error fetching PM range: {e}")
+
+# =====================================================================
+# --- Page 8: Support and Resistance ---
+# =====================================================================
+elif page == "Support and Resistance":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("S/R Parameters")
+    sr_symbol = st.sidebar.text_input("Ticker", value="QQQ").upper()
+    
+    st.title(f"🧱 {sr_symbol} Institutional Support & Resistance")
+    st.markdown("Algorithmic mapping of the 4 closest Daily and Weekly structural pivot levels based on 6 months of historical data.")
+    
+    if st.button("Calculate Core Levels", type="primary"):
+        with st.spinner(f"Mapping structural geometry for {sr_symbol}..."):
+            try:
+                alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+                
+                # Fetch 6 months of Daily Data
+                now = datetime.now(timezone.utc)
+                start_dt = now - timedelta(days=180)
+                
+                req_daily = StockBarsRequest(
+                    symbol_or_symbols=sr_symbol,
+                    timeframe=TimeFrame(1, TimeFrameUnit.Day),
+                    start=start_dt,
+                    end=now,
+                    feed=DataFeed.IEX
+                )
+                
+                req_weekly = StockBarsRequest(
+                    symbol_or_symbols=sr_symbol,
+                    timeframe=TimeFrame(1, TimeFrameUnit.Week),
+                    start=start_dt,
+                    end=now,
+                    feed=DataFeed.IEX
+                )
+                
+                bars_daily = client.get_stock_bars(req_daily)
+                bars_weekly = client.get_stock_bars(req_weekly)
+                
+                if not bars_daily or bars_daily.df.empty:
+                    st.error("No daily data found.")
+                    st.stop()
+                    
+                df_daily = bars_daily.df.droplevel(0).reset_index()
+                df_weekly = bars_weekly.df.droplevel(0).reset_index() if (bars_weekly and not bars_weekly.df.empty) else pd.DataFrame()
+                
+                # We need the current absolute live price
+                current_price = float(df_daily['close'].iloc[-1])
+                
+                def find_pivots(df, window=5):
+                    """Finds structural pivot highs and lows in a dataframe."""
+                    if df.empty or len(df) < window * 2:
+                        return [], []
+                        
+                    highs = []
+                    lows = []
+                    
+                    for i in range(window, len(df) - window):
+                        center_high = df.loc[i, 'high']
+                        center_low = df.loc[i, 'low']
+                        
+                        is_high = True
+                        is_low = True
+                        
+                        for j in range(i - window, i + window + 1):
+                            if i != j:
+                                if df.loc[j, 'high'] > center_high:
+                                    is_high = False
+                                if df.loc[j, 'low'] < center_low:
+                                    is_low = False
+                                    
+                        if is_high:
+                            highs.append(float(center_high))
+                        if is_low:
+                            lows.append(float(center_low))
+                            
+                    return sorted(list(set(highs))), sorted(list(set(lows)))
+                    
+                def get_closest_levels(price, levels_list, count=2, is_resistance=True):
+                    """
+                    Given a price and a list of levels:
+                    If is_resistance=True, find the 'count' closest levels strictly > price.
+                    If is_resistance=False, find the 'count' closest levels strictly < price.
+                    """
+                    if is_resistance:
+                        valid = [lvl for lvl in levels_list if lvl > price]
+                        # Sort ascending so the closest (smallest difference) are first
+                        valid.sort()
+                        return valid[:count]
+                    else:
+                        valid = [lvl for lvl in levels_list if lvl < price]
+                        # Sort descending so the closest (smallest difference) are first
+                        valid.sort(reverse=True)
+                        return valid[:count]
+
+                # --- Calculate Daily Pivots ---
+                d_highs, d_lows = find_pivots(df_daily, window=5) # 5-day swing structure
+                
+                # Daily Resistance (Above price)
+                # Combine both Highs and Lows as potential S/R flips, but primarily rely on Highs for Resistance
+                all_d_levels = list(set(d_highs + d_lows))
+                d_res = get_closest_levels(current_price, all_d_levels, count=2, is_resistance=True)
+                
+                # Daily Support (Below price)
+                d_sup = get_closest_levels(current_price, all_d_levels, count=2, is_resistance=False)
+                
+                # --- Calculate Weekly Pivots ---
+                w_highs, w_lows = find_pivots(df_weekly, window=2) # 2-week swing structure
+                all_w_levels = list(set(w_highs + w_lows))
+                w_res = get_closest_levels(current_price, all_w_levels, count=2, is_resistance=True)
+                w_sup = get_closest_levels(current_price, all_w_levels, count=2, is_resistance=False)
+                
+                # UI Rendering
+                st.markdown(f"### Current Live Price: **${current_price:.2f}**")
+                st.markdown("---")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("Daily Institutional Levels")
+                    st.markdown("*5-Day Swing Structure*")
+                    
+                    st.markdown("#### Resistance (Overhead Supply)")
+                    if not d_res:
+                        st.info("No Resistance found in 6m lookback (Blue Sky).")
+                    else:
+                        # Reverse to display R2 then R1
+                        for i, res in enumerate(reversed(d_res)):
+                            dist = ((res - current_price) / current_price) * 100
+                            st.markdown(f'<div class="status-red">R{len(d_res)-i}: ${res:.2f} (+{dist:.2f}%)</div>', unsafe_allow_html=True)
+                            
+                    st.markdown("<br/>", unsafe_allow_html=True)
+                    
+                    st.markdown("#### Support (Underlying Demand)")
+                    if not d_sup:
+                        st.info("No Support found in 6m lookback (Price Discovery).")
+                    else:
+                        # Display S1 then S2
+                        for i, sup in enumerate(d_sup):
+                            dist = ((current_price - sup) / current_price) * 100
+                            st.markdown(f'<div class="status-green">S{i+1}: ${sup:.2f} (-{dist:.2f}%)</div>', unsafe_allow_html=True)
+
+                with col2:
+                    st.subheader("Weekly Macro Levels")
+                    st.markdown("*2-Week Swing Structure*")
+                    
+                    st.markdown("#### Resistance (Overhead Supply)")
+                    if not w_res:
+                        st.info("No Resistance found in 6m lookback.")
+                    else:
+                        for i, res in enumerate(reversed(w_res)):
+                            dist = ((res - current_price) / current_price) * 100
+                            st.markdown(f'<div class="status-red">R{len(w_res)-i}: ${res:.2f} (+{dist:.2f}%)</div>', unsafe_allow_html=True)
+                            
+                    st.markdown("<br/>", unsafe_allow_html=True)
+                    
+                    st.markdown("#### Support (Underlying Demand)")
+                    if not w_sup:
+                        st.info("No Support found in 6m lookback.")
+                    else:
+                        for i, sup in enumerate(w_sup):
+                            dist = ((current_price - sup) / current_price) * 100
+                            st.markdown(f'<div class="status-green">S{i+1}: ${sup:.2f} (-{dist:.2f}%)</div>', unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Error calculating levels: {e}")
 

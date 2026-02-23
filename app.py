@@ -262,7 +262,11 @@ elif page == "Stock Testing":
                         continue
                         
                     df = bars.df.droplevel(0)
-                        
+                    
+                    # Filter for Regular Market Hours (9:30 AM to 4:00 PM EST) if intraday
+                    if tf != "1d":
+                        df.index = df.index.tz_convert('America/New_York')
+                        df = df.between_time('09:30', '16:00')
                         
                     # Calculate MAs
                     df['EMA_9'] = df['close'].ewm(span=9, adjust=False).mean()

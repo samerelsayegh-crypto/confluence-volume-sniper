@@ -81,6 +81,10 @@ class ConfluenceVolumeSniper:
             # Drop the symbol level so index is just timestamp
             df = df.droplevel(0)
             
+            if interval != '1d':
+                df.index = df.index.tz_convert('America/New_York')
+                df = df.between_time('09:30', '16:00')
+            
             # alpaca standard columns are already lowercase: close, high, low, open, volume, etc.
             return df
         except Exception as e:

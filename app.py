@@ -896,7 +896,7 @@ elif page == "Signal 5 - PM High / Low Prices":
                     timeframe=TimeFrame(1, TimeFrameUnit.Minute),
                     start=start_dt,
                     end=now,
-                    feed=DataFeed.SIP # Changed to SIP to capture full market PM volume and correct High/Low wicks
+                    feed=DataFeed.IEX # Reverted to IEX due to Alpaca Basic subscription limits on SIP
                 )
                 
                 bars = client.get_stock_bars(req)
@@ -920,37 +920,62 @@ elif page == "Signal 5 - PM High / Low Prices":
                 df_latest_day = df[df['Date'] == latest_day].copy()
                 
                 # Filter specifically for Pre-Market window (04:00 AM to 09:30 AM EST)
-                # We use 09:29 to ensure we don't accidentally grab the 09:30 regular market open candle
                 pm_data = df_latest_day.between_time('04:00', '09:29')
                 
                 if pm_data.empty:
                     st.warning(f"No Pre-Market data recorded for {pm_symbol} on {latest_day}.")
                     st.stop()
                     
-                # Calculate Absolute High and Low during the PM session
-                pm_high = float(pm_data['high'].max())
-                pm_low = float(pm_data['low'].min())
+                # Calculate Absolute High and Low during the PM session from Alpaca (IEX)
+                pm_high_alpaca = float(pm_data['high'].max())
+                pm_low_alpaca = float(pm_data['low'].min())
                 pm_volume = int(pm_data['volume'].sum())
                 
+                # --- YAHOO FINANCE FALLBACK FOR ACCURATE SIP REPLACEMENT ---
+                # Since IEX misses full market wicks, use yfinance to supplement the PM range
+                import yfinance as yf
+                yf_ticker = yf.Ticker(pm_symbol)
+                
+                # Fetch 1m data for the last 2 days with prepost=True to get extended hours
+                yf_df = yf_ticker.history(period="2d", interval="1m", prepost=True)
+                
+                pm_high_final = pm_high_alpaca
+                pm_low_final = pm_low_alpaca
+                
+                if not yf_df.empty:
+                    # Timezone is usually America/New_York from yfinance
+                    yf_df.index = yf_df.index.tz_convert('America/New_York')
+                    yf_latest_day = yf_df[yf_df.index.date == latest_day]
+                    
+                    if not yf_latest_day.empty:
+                        yf_pm_data = yf_latest_day.between_time('04:00', '09:29')
+                        if not yf_pm_data.empty:
+                            yf_pm_high = float(yf_pm_data['High'].max())
+                            yf_pm_low = float(yf_pm_data['Low'].min())
+                            
+                            # Use the extreme from either Alpaca or YF to ensure accuracy
+                            pm_high_final = max(pm_high_alpaca, yf_pm_high)
+                            pm_low_final = min(pm_low_alpaca, yf_pm_low)
+                            
                 latest_close = float(df_latest_day['close'].iloc[-1])
                 
                 st.markdown(f"### Pre-Market Analytics for {latest_day}")
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Pre-Market High", f"${pm_high:.2f}")
-                c2.metric("Pre-Market Low", f"${pm_low:.2f}")
-                c3.metric("Total PM Volume", f"{pm_volume:,}")
+                c1.metric("Pre-Market High (Consolidated)", f"${pm_high_final:.2f}")
+                c2.metric("Pre-Market Low (Consolidated)", f"${pm_low_final:.2f}")
+                c3.metric("Total PM Volume (IEX routed)", f"{pm_volume:,}")
                 
                 st.markdown("---")
                 st.markdown(f"**Current Live Price:** ${latest_close:.2f}")
                 
                 # Determine relationship
-                if latest_close > pm_high:
-                    st.markdown(f'<div class="status-green">🟢 BULLISH: Price (${latest_close:.2f}) is currently trading ABOVE the Pre-Market High (${pm_high:.2f}).</div>', unsafe_allow_html=True)
-                elif latest_close < pm_low:
-                    st.markdown(f'<div class="status-red">🔴 BEARISH: Price (${latest_close:.2f}) is currently trading BELOW the Pre-Market Low (${pm_low:.2f}).</div>', unsafe_allow_html=True)
+                if latest_close > pm_high_final:
+                    st.markdown(f'<div class="status-green">🟢 BULLISH: Price (${latest_close:.2f}) is currently trading ABOVE the Pre-Market High (${pm_high_final:.2f}).</div>', unsafe_allow_html=True)
+                elif latest_close < pm_low_final:
+                    st.markdown(f'<div class="status-red">🔴 BEARISH: Price (${latest_close:.2f}) is currently trading BELOW the Pre-Market Low (${pm_low_final:.2f}).</div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f'<div class="status-orange">🟡 NEUTRAL: Price (${latest_close:.2f}) is currently trading INSIDE the Pre-Market range (${pm_low:.2f} - ${pm_high:.2f}).</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="status-orange">🟡 NEUTRAL: Price (${latest_close:.2f}) is currently trading INSIDE the Pre-Market range (${pm_low_final:.2f} - ${pm_high_final:.2f}).</div>', unsafe_allow_html=True)
                 
                 # Optional details
                 with st.expander("View Raw Pre-Market Time Series"):

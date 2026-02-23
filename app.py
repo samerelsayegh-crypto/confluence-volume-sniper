@@ -304,6 +304,9 @@ elif page == "Stock Testing":
                     else:
                         res_tf["price_lt"] = {"status": "MIXED", "css": "status-orange", "icon": "🟡"}
                         
+                    # Save the dataframe for the chart and raw data display (last 100 periods to keep it fast)
+                    res_tf["df"] = df_clean.tail(100)
+                        
                     results[tf] = res_tf
                     
                 except Exception as e:
@@ -370,3 +373,45 @@ elif page == "Stock Testing":
             for i, tf in enumerate(timeframes):
                 if not results[tf].get("error"):
                     p_cols[i].metric(f"{test_symbol} Close Price ({tf})", f"${results[tf]['price']:.2f}")
+
+            st.markdown("---")
+            st.markdown(f"### 📈 Technical Details & Charts")
+            
+            # Create tabs for each timeframe to show charts and raw data
+            tabs = st.tabs([f"{tf} Data" for tf in timeframes])
+            
+            for i, tf in enumerate(timeframes):
+                with tabs[i]:
+                    if results[tf].get("error"):
+                        st.warning(f"No valid data could be calculated for the {tf} timeframe.")
+                    else:
+                        hist_df = results[tf]["df"]
+                        
+                        # Render Chart
+                        fig = go.Figure()
+                        
+                        # Add Price
+                        fig.add_trace(go.Scatter(x=hist_df.index, y=hist_df['close'], mode='lines', name='Close Price', line=dict(color='black', width=2)))
+                        # Add MAs
+                        fig.add_trace(go.Scatter(x=hist_df.index, y=hist_df['EMA_9'], mode='lines', name='9 EMA', line=dict(color='blue', width=1)))
+                        fig.add_trace(go.Scatter(x=hist_df.index, y=hist_df['EMA_20'], mode='lines', name='20 EMA', line=dict(color='orange', width=1)))
+                        fig.add_trace(go.Scatter(x=hist_df.index, y=hist_df['WMA_50'], mode='lines', name='50 WMA', line=dict(color='purple', width=2)))
+                        fig.add_trace(go.Scatter(x=hist_df.index, y=hist_df['WMA_100'], mode='lines', name='100 WMA', line=dict(color='red', width=2)))
+                        fig.add_trace(go.Scatter(x=hist_df.index, y=hist_df['WMA_200'], mode='lines', name='200 WMA', line=dict(color='green', width=3, dash='dot')))
+                        
+                        fig.update_layout(
+                            title=f"{test_symbol} - {tf} Chart with Moving Averages",
+                            xaxis_title="Time",
+                            yaxis_title="Price",
+                            template="plotly_white",
+                            height=500,
+                            hovermode="x unified"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Render Data
+                        st.markdown(f"**Latest Raw Data ({tf})**")
+                        # Show only the relevant columns and the last 15 rows for neatness
+                        display_df = hist_df[['close', 'EMA_9', 'EMA_20', 'WMA_50', 'WMA_100', 'WMA_200']].tail(15)
+                        st.dataframe(display_df.style.format("{:.2f}"), use_container_width=True)
+                        

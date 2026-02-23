@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -587,3 +587,128 @@ elif page == "Signal 2 - 15 Min ORB":
 
             except Exception as e:
                 st.error(f"Error processing ORB: {e}")
+
+# =====================================================================
+# --- Page 5: Signal 3 - VWAP ---
+# =====================================================================
+elif page == "Signal 3 - VWAP":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("VWAP Parameters")
+    test_symbol = st.sidebar.text_input("Ticker", value="QQQ").upper()
+    
+    st.title(f"⚖️ Signal 3: {test_symbol} Daily Anchored VWAP")
+    st.markdown("Automated detection of the current price relative to the Daily Volume Weighted Average Price (VWAP).")
+    
+    if st.button("Calculate VWAP", type="primary"):
+        with st.spinner(f"Analyzing {test_symbol} VWAP..."):
+            try:
+                alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+                
+                # Fetch 5-minute data for the current/latest day
+                now = datetime.now(timezone.utc)
+                start_dt = now - timedelta(days=5) # Get a few days to ensure we have the latest session
+                
+                req = StockBarsRequest(
+                    symbol_or_symbols=test_symbol,
+                    timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+                    start=start_dt,
+                    end=now - timedelta(minutes=16),
+                    feed=DataFeed.IEX
+                )
+                
+                bars = client.get_stock_bars(req)
+                if not bars or bars.df.empty:
+                    st.error("No data found or market is closed.")
+                    st.stop()
+                    
+                df = bars.df.droplevel(0)
+                df.index = df.index.tz_convert('America/New_York')
+                
+                # Filter strictly to Regular Market Hours
+                df = df.between_time('09:30', '16:00')
+                
+                # Group by date
+                df['Date'] = df.index.date
+                
+                # Get the latest day with data
+                unique_days = df['Date'].unique()
+                latest_day = unique_days[-1]
+                df_latest_day = df[df['Date'] == latest_day].copy()
+                
+                if df_latest_day.empty:
+                    st.warning("No data found for the regular trading session today.")
+                    st.stop()
+                    
+                # Calculate Daily Anchored VWAP
+                # Typical Price = (High + Low + Close) / 3
+                df_latest_day['Typical_Price'] = (df_latest_day['high'] + df_latest_day['low'] + df_latest_day['close']) / 3
+                df_latest_day['VP'] = df_latest_day['Typical_Price'] * df_latest_day['volume']
+                
+                df_latest_day['Cumulative_VP'] = df_latest_day['VP'].cumsum()
+                df_latest_day['Cumulative_Volume'] = df_latest_day['volume'].cumsum()
+                
+                df_latest_day['VWAP'] = df_latest_day['Cumulative_VP'] / df_latest_day['Cumulative_Volume']
+                
+                # Current Price & VWAP
+                current_price = df_latest_day['close'].iloc[-1]
+                current_vwap = df_latest_day['VWAP'].iloc[-1]
+                
+                st.markdown(f"### {test_symbol} VWAP Status ({latest_day})")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Live Price (Last Close)", f"${current_price:.2f}")
+                c2.metric("Daily VWAP", f"${current_vwap:.2f}")
+                
+                # Determine relationship
+                diff = current_price - current_vwap
+                pct_diff = (diff / current_vwap) * 100
+                c3.metric("Distance from VWAP", f"${diff:.2f}", f"{pct_diff:.2f}%")
+                
+                st.markdown("---")
+                
+                if current_price > current_vwap:
+                    st.markdown('<div class="status-green">🟢 BULLISH: Price is holding ABOVE the Daily VWAP. Buyers are in control.</div>', unsafe_allow_html=True)
+                elif current_price < current_vwap:
+                    st.markdown('<div class="status-red">🔴 BEARISH: Price is holding BELOW the Daily VWAP. Sellers are in control.</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<div class="status-orange">🟡 NEUTRAL: Price is exactly at VWAP.</div>', unsafe_allow_html=True)
+                    
+                # Plotting
+                st.markdown("---")
+                st.markdown("### Interactive VWAP Chart")
+                
+                fig = go.Figure()
+                
+                # Candlesticks
+                fig.add_trace(go.Candlestick(
+                    x=df_latest_day.index, open=df_latest_day['open'], high=df_latest_day['high'], 
+                    low=df_latest_day['low'], close=df_latest_day['close'], name="Price"
+                ))
+                
+                # VWAP Line
+                fig.add_trace(go.Scatter(
+                    x=df_latest_day.index, y=df_latest_day['VWAP'], 
+                    mode='lines', name='VWAP', line=dict(color='purple', width=3)
+                ))
+                
+                fig.update_layout(
+                    height=600, 
+                    xaxis_rangeslider_visible=False,
+                    template="plotly_white",
+                    xaxis_title="Time (EST)",
+                    yaxis_title="Price",
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
+                    
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Raw data
+                with st.expander("View Raw Intraday Data"):
+                    # Format to 2 decimal places before display
+                    display_df = df_latest_day[['open', 'high', 'low', 'close', 'volume', 'VWAP']].copy()
+                    display_df['VWAP'] = display_df['VWAP'].round(2)
+                    st.dataframe(display_df, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Error processing VWAP: {e}")

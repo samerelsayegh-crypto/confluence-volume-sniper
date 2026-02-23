@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - Trend Line"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -712,3 +712,214 @@ elif page == "Signal 3 - VWAP":
 
             except Exception as e:
                 st.error(f"Error processing VWAP: {e}")
+
+# =====================================================================
+# --- Page 6: Signal 4 - Trend Line ---
+# =====================================================================
+elif page == "Signal 4 - Trend Line":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Trend Line Parameters")
+    test_symbol = st.sidebar.text_input("Ticker", value="QQQ").upper()
+    
+    st.title(f"📐 Signal 4: {test_symbol} Institutional Trend Lines")
+    st.markdown("Automated detection of dynamic support/resistance using 5-bar Daily Swing Highs and Lows.")
+    
+    if st.button("Calculate Trend Lines", type="primary"):
+        with st.spinner(f"Mapping structured geometry for {test_symbol}..."):
+            try:
+                alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+                
+                # Fetch Daily Data for the last 6 months to ensure we have enough swings
+                now = datetime.now(timezone.utc)
+                start_dt = now - timedelta(days=180)
+                
+                req = StockBarsRequest(
+                    symbol_or_symbols=test_symbol,
+                    timeframe=TimeFrame(1, TimeFrameUnit.Day),
+                    start=start_dt,
+                    end=now,
+                    feed=DataFeed.IEX
+                )
+                
+                bars = client.get_stock_bars(req)
+                if not bars or bars.df.empty:
+                    st.error("No data found.")
+                    st.stop()
+                    
+                df = bars.df.droplevel(0)
+                
+                # We need numeric indices to easily calculate slope later
+                df = df.reset_index()
+                df['BarIndex'] = df.index
+                
+                # Step 1: Detect Pivot Highs / Pivot Lows
+                # A pivot high is the highest high over the 5 bars before and 5 bars after it (11 bars total).
+                window = 5
+                
+                # Initialize columns
+                df['PivotHigh'] = np.nan
+                df['PivotLow'] = np.nan
+                
+                # We iterate up to len(df) - window because the latest 'window' bars cannot be confirmed as pivots yet
+                for i in range(window, len(df) - window):
+                    # Pivot High check
+                    is_high = True
+                    is_low = True
+                    
+                    center_high = df.loc[i, 'high']
+                    center_low = df.loc[i, 'low']
+                    
+                    for j in range(i - window, i + window + 1):
+                        if i != j:
+                            if df.loc[j, 'high'] > center_high:
+                                is_high = False
+                            if df.loc[j, 'low'] < center_low:
+                                is_low = False
+                                
+                    if is_high:
+                        df.loc[i, 'PivotHigh'] = center_high
+                    if is_low:
+                        df.loc[i, 'PivotLow'] = center_low
+                        
+                # Step 2: Extract structured swing points
+                highs = df.dropna(subset=['PivotHigh'])[['BarIndex', 'timestamp', 'PivotHigh']]
+                lows = df.dropna(subset=['PivotLow'])[['BarIndex', 'timestamp', 'PivotLow']]
+                
+                # Step 3: Find Trend Lines
+                
+                # Downward Trend Line (Lower Highs)
+                downward_line = None
+                # We need at least 2 highs to draw a line
+                if len(highs) >= 2:
+                    # Iterate backwards to find the most recent lower high structure
+                    for i in range(len(highs) - 1, 0, -1):
+                        pt2 = highs.iloc[i]
+                        pt1 = highs.iloc[i-1]
+                        
+                        # Lower High check: Point 2 High < Point 1 High
+                        if pt2['PivotHigh'] < pt1['PivotHigh']:
+                            downward_line = (pt1, pt2)
+                            break
+                            
+                # Upward Trend Line (Higher Lows)
+                upward_line = None
+                if len(lows) >= 2:
+                    # Iterate backwards to find the most recent higher low structure
+                    for i in range(len(lows) - 1, 0, -1):
+                        pt2 = lows.iloc[i]
+                        pt1 = lows.iloc[i-1]
+                        
+                        # Higher Low check: Point 2 Low > Point 1 Low
+                        if pt2['PivotLow'] > pt1['PivotLow']:
+                            upward_line = (pt1, pt2)
+                            break
+                            
+                # Step 4: Calculate Line Equations and Current Line Giá
+                current_bar_index = df['BarIndex'].iloc[-1]
+                current_price = df['close'].iloc[-1]
+                
+                upward_target = None
+                downward_target = None
+                
+                def calculate_line_y(pt1_idx, pt1_y, pt2_idx, pt2_y, target_idx):
+                    slope = (pt2_y - pt1_y) / (pt2_idx - pt1_idx)
+                    intercept = pt1_y - (slope * pt1_idx)
+                    return (slope * target_idx) + intercept
+                
+                # --- Prepare Plotly Figure ---
+                fig = go.Figure()
+                
+                # Base Candlesticks
+                fig.add_trace(go.Candlestick(
+                    x=df['timestamp'], open=df['open'], high=df['high'], 
+                    low=df['low'], close=df['close'], name="Daily Price"
+                ))
+                
+                # Add High Pivots (Triangles)
+                fig.add_trace(go.Scatter(
+                    x=highs['timestamp'], y=highs['PivotHigh'],
+                    mode='markers', marker=dict(symbol='triangle-down', size=10, color='red'),
+                    name='Swing Highs'
+                ))
+                
+                # Add Low Pivots (Triangles)
+                fig.add_trace(go.Scatter(
+                    x=lows['timestamp'], y=lows['PivotLow'],
+                    mode='markers', marker=dict(symbol='triangle-up', size=10, color='green'),
+                    name='Swing Lows'
+                ))
+                
+                # Process and Plot Downward Line
+                if downward_line:
+                    pt1, pt2 = downward_line
+                    # Project to current date
+                    proj_y_start = calculate_line_y(pt1['BarIndex'], pt1['PivotHigh'], pt2['BarIndex'], pt2['PivotHigh'], pt1['BarIndex'] - 10) # start arbitrarily before
+                    proj_y_end = calculate_line_y(pt1['BarIndex'], pt1['PivotHigh'], pt2['BarIndex'], pt2['PivotHigh'], current_bar_index + 10) # project forward
+                    
+                    x_start = df.loc[max(0, pt1['BarIndex'] - 10), 'timestamp']
+                    # for future projection, we fake a timestamp
+                    days_forward = 10
+                    x_end = df['timestamp'].iloc[-1] + pd.Timedelta(days=days_forward)
+                    
+                    fig.add_trace(go.Scatter(
+                        x=[x_start, x_end], y=[proj_y_start, proj_y_end],
+                        mode='lines', name='Downward Trend', line=dict(color='red', width=2, dash='solid')
+                    ))
+                    
+                    downward_target = calculate_line_y(pt1['BarIndex'], pt1['PivotHigh'], pt2['BarIndex'], pt2['PivotHigh'], current_bar_index)
+                    
+                # Process and Plot Upward Line
+                if upward_line:
+                    pt1, pt2 = upward_line
+                    # Project to current date
+                    proj_y_start = calculate_line_y(pt1['BarIndex'], pt1['PivotLow'], pt2['BarIndex'], pt2['PivotLow'], pt1['BarIndex'] - 10)
+                    proj_y_end = calculate_line_y(pt1['BarIndex'], pt1['PivotLow'], pt2['BarIndex'], pt2['PivotLow'], current_bar_index + 10)
+                    
+                    x_start = df.loc[max(0, pt1['BarIndex'] - 10), 'timestamp']
+                    days_forward = 10
+                    x_end = df['timestamp'].iloc[-1] + pd.Timedelta(days=days_forward)
+                    
+                    fig.add_trace(go.Scatter(
+                        x=[x_start, x_end], y=[proj_y_start, proj_y_end],
+                        mode='lines', name='Upward Trend', line=dict(color='green', width=2, dash='solid')
+                    ))
+                    
+                    upward_target = calculate_line_y(pt1['BarIndex'], pt1['PivotLow'], pt2['BarIndex'], pt2['PivotLow'], current_bar_index)
+                    
+                # UI Rendering
+                st.markdown("### Algorithmic Extrapolations")
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("Live Market Price", f"${current_price:.2f}")
+                
+                if upward_target:
+                    dist = current_price - upward_target
+                    pct = (dist / upward_target) * 100
+                    sc2.metric("Support Trendline", f"${upward_target:.2f}", f"{pct:.2f}% (Dist)")
+                else:
+                    sc2.metric("Support Trendline", "N/A")
+                    
+                if downward_target:
+                    dist = downward_target - current_price # Distance to resistance
+                    pct = (dist / current_price) * 100
+                    sc3.metric("Resistance Trendline", f"${downward_target:.2f}", f"{pct:.2f}% (Dist)", delta_color="inverse")
+                else:
+                    sc3.metric("Resistance Trendline", "N/A")
+                    
+                st.markdown("---")
+                
+                fig.update_layout(
+                    height=700, 
+                    xaxis_rangeslider_visible=False,
+                    template="plotly_white",
+                    title="Daily Geometric Patterns",
+                    xaxis_title="Date",
+                    yaxis_title="Price",
+                    margin=dict(l=0, r=0, t=40, b=0)
+                )
+                    
+                st.plotly_chart(fig, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"Error drawing trend lines: {e}")

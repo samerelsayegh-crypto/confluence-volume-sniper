@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - High / Low Distances"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Signal 1 - MA", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - High / Low Distances"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -209,14 +209,14 @@ elif page == "Market Analytics":
             st.markdown('<div class="status-orange">ℹ️ No actionable setups found across the watchlist on this timeframe. The broader market may be choppy or assets are waiting for algorithmic pullbacks.</div>', unsafe_allow_html=True)
 
 # =====================================================================
-# --- Page 3: Stock Testing ---
+# --- Page 3: Signal 1 - MA ---
 # =====================================================================
-elif page == "Stock Testing":
+elif page == "Signal 1 - MA":
     st.sidebar.markdown("---")
     st.sidebar.subheader("Testing Parameters")
     test_symbol = st.sidebar.text_input("Test Ticker", value="QQQ").upper()
     
-    st.title(f"🧪 Stock Testing: {test_symbol} Multi-Timeframe Monitor")
+    st.title(f"🧪 Signal 1 - MA: {test_symbol} Multi-Timeframe Monitor")
     st.markdown("Real-time automated evaluation across 5m, 15m, 1h, and 1d timeframes.")
     
     if st.button("Run Multi-Timeframe Scan", type="primary"):

@@ -38,7 +38,7 @@ st.markdown("""
 # --- Sidebar Setup & Navigation ---
 # =====================================================================
 st.sidebar.title("🎯 Sniper Engine")
-page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP"])
+page = st.sidebar.radio("Navigation", ["Home Dashboard", "Market Analytics", "Stock Testing", "Signal 2 - 15 Min ORB", "Signal 3 - VWAP", "Signal 4 - High / Low Distances"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Money Management")
@@ -712,4 +712,160 @@ elif page == "Signal 3 - VWAP":
 
             except Exception as e:
                 st.error(f"Error processing VWAP: {e}")
+
+# =====================================================================
+# --- Page 6: Signal 4 - High / Low Distances ---
+# =====================================================================
+elif page == "Signal 4 - High / Low Distances":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Watchlist Settings")
+    default_wl = "QQQ, SPY, TSLA, NVDA, AAPL, MSFT, META, GOOGL, AMZN, PLTR, COIN, MSTR"
+    watchlist_input = st.sidebar.text_area("Tickers (Comma Separated)", value=default_wl, height=100)
+    
+    st.title("📊 Signal 4: Daily High & Low Divergence Tracker")
+    st.markdown("Monitor real-time percentage distances from the Daily High, Daily Low, and Yesterday's Close across an entire watchlist.")
+    
+    if st.button("Run Watchlist Scan", type="primary"):
+        tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
+        
+        if not tickers:
+            st.warning("Please enter at least one ticker.")
+            st.stop()
+            
+        with st.spinner("Fetching market data..."):
+            try:
+                alpaca_key = st.secrets["alpaca"]["API_KEY"]
+                alpaca_secret = st.secrets["alpaca"]["API_SECRET"]
+                client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+                
+                # We fetch 1-Day timeframe data for the last 5 days to get yesterday's close and today's intraday high/low
+                now = datetime.now(timezone.utc)
+                start_dt = now - timedelta(days=5)
+                
+                req = StockBarsRequest(
+                    symbol_or_symbols=tickers,
+                    timeframe=TimeFrame(1, TimeFrameUnit.Day),
+                    start=start_dt,
+                    end=now,
+                    feed=DataFeed.IEX
+                )
+                
+                bars = client.get_stock_bars(req)
+                if not bars or bars.df.empty:
+                    st.error("No data found.")
+                    st.stop()
+                    
+                df_all = bars.df.reset_index()
+                
+                # Ensure timezone awareness for filtering
+                if df_all['timestamp'].dt.tz is None:
+                    df_all['timestamp'] = df_all['timestamp'].dt.tz_localize('UTC')
+                
+                # Get the latest two unique dates
+                df_all['Date'] = df_all['timestamp'].dt.date
+                unique_dates = sorted(list(set(df_all['Date'])))
+                
+                if len(unique_dates) < 1:
+                    st.warning("Not enough data to compute prior day comparisons.")
+                    st.stop()
+                    
+                latest_date = unique_dates[-1]
+                prev_date = unique_dates[-2] if len(unique_dates) > 1 else None
+                
+                st.markdown(f"**Data representing trading session for:** {latest_date}")
+                
+                results = []
+                
+                # Create a progress bar
+                progress_text = "Processing metrics..."
+                my_bar = st.progress(0, text=progress_text)
+                
+                for i, ticker in enumerate(tickers):
+                    # Update progress
+                    my_bar.progress(int((i / len(tickers)) * 100), text=f"Processing {ticker}...")
+                    
+                    # Filter for specific symbol
+                    df_sym = df_all[df_all['symbol'] == ticker].sort_values('timestamp')
+                    if df_sym.empty:
+                        continue
+                        
+                    # Extract Today's metrics
+                    today_data = df_sym[df_sym['Date'] == latest_date]
+                    if today_data.empty:
+                        continue
+                        
+                    current_price = float(today_data['close'].iloc[-1])
+                    daily_high = float(today_data['high'].max())
+                    daily_low = float(today_data['low'].min())
+                    
+                    # Distances
+                    dist_to_high = current_price - daily_high
+                    pct_dist_high = (dist_to_high / daily_high) * 100
+                    
+                    dist_from_low = current_price - daily_low
+                    pct_dist_low = (dist_from_low / daily_low) * 100
+                    
+                    # Optional: Distance from prior day close
+                    prev_close = None
+                    pct_change_1d = None
+                    if prev_date is not None:
+                        prev_data = df_sym[df_sym['Date'] <= prev_date]
+                        if not prev_data.empty:
+                            prev_close = float(prev_data['close'].iloc[-1])
+                            pct_change_1d = ((current_price - prev_close) / prev_close) * 100
+                            
+                    results.append({
+                        "Ticker": ticker,
+                        "Live Price": current_price,
+                        "Daily High": daily_high,
+                        "Dist to High (%)": pct_dist_high,
+                        "Daily Low": daily_low,
+                        "Dist to Low (%)": pct_dist_low,
+                        "1D Change (%)": pct_change_1d if pct_change_1d is not None else 0.0
+                    })
+                    
+                my_bar.progress(100, text="Scan Complete!")
+                
+                if not results:
+                    st.warning("No valid data could be processed for the provided tickers.")
+                    st.stop()
+                    
+                # Convert to DataFrame for display
+                res_df = pd.DataFrame(results)
+                
+                # --- Styling the DataFrame ---
+                def color_negative_red(val):
+                    color = 'red' if val < 0 else 'green'
+                    return f'color: {color}'
+                    
+                def format_row_bg(row):
+                    # Highlight rows near highs (green tint) or near lows (red tint)
+                    # For example, if within 0.5% of high:
+                    if row['Dist to High (%)'] >= -0.5:
+                        return ['background-color: #E8F5E9'] * len(row)
+                    elif row['Dist to Low (%)'] <= 0.5:
+                        return ['background-color: #FFEBEE'] * len(row)
+                    return [''] * len(row)
+
+                formatted_df = res_df.style.format({
+                    "Live Price": "${:.2f}",
+                    "Daily High": "${:.2f}",
+                    "Dist to High (%)": "{:.2f}%",
+                    "Daily Low": "${:.2f}",
+                    "Dist to Low (%)": "+{:.2f}%",
+                    "1D Change (%)": "{:.2f}%"
+                }).applymap(color_negative_red, subset=['Dist to High (%)', '1D Change (%)']) \
+                  .apply(format_row_bg, axis=1)
+                  
+                st.dataframe(formatted_df, use_container_width=True, height=500)
+                
+                st.markdown("""
+                <br/>
+                **Legend:**  
+                - 🟢 Green colored rows indicate an asset trading **within 0.5%** of its Daily High.  
+                - 🔴 Red colored rows indicate an asset trading **within 0.5%** of its Daily Low.
+                """, unsafe_allow_html=True)
+                
+            except Exception as e:
+                st.error(f"Error executing scanner: {e}")
 

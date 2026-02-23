@@ -308,6 +308,20 @@ elif page == "Stock Testing":
                         lt_css = "status-orange"
                         lt_msg = f"🟡 Long-Term Neutral: 100 WMA equals 200 WMA."
 
+                    # Dashboard Logic 4: Price vs Long-Term MAs
+                    if close_price > wma100 and close_price > wma200:
+                        pt_status = "UPTREND"
+                        pt_css = "status-green"
+                        pt_msg = f"🟢 Price vs LT Trend: Current Price is strictly ABOVE both 100 and 200 WMA."
+                    elif close_price < wma100 and close_price < wma200:
+                        pt_status = "DOWNTREND"
+                        pt_css = "status-red"
+                        pt_msg = f"🔴 Price vs LT Trend: Current Price is strictly BELOW both 100 and 200 WMA."
+                    else:
+                        pt_status = "MIXED"
+                        pt_css = "status-orange"
+                        pt_msg = f"🟡 Price vs LT Trend: Current Price is IN BETWEEN 100 WMA and 200 WMA."
+
 
                     st.markdown("### Visual Status Dashboard")
                     st.markdown("#### 1. Short-Term Moving Average Stack (Trend Direction)")
@@ -316,6 +330,8 @@ elif page == "Stock Testing":
                     st.markdown(f'<div class="{price_css}" style="text-align: center; font-size: 20px;">{price_msg}</div>', unsafe_allow_html=True)
                     st.markdown("#### 3. Long-Term Trend (100 WMA vs 200 WMA)")
                     st.markdown(f'<div class="{lt_css}" style="text-align: center; font-size: 20px;">{lt_msg}</div>', unsafe_allow_html=True)
+                    st.markdown("#### 4. Price Position vs Long-Term Trend")
+                    st.markdown(f'<div class="{pt_css}" style="text-align: center; font-size: 20px;">{pt_msg}</div>', unsafe_allow_html=True)
                     
                     st.markdown("### Current Values")
                     c1, c2, c3, c4, c5, c6 = st.columns(6)

@@ -214,10 +214,21 @@ elif page == "Market Analytics":
 elif page == "Stock Analysis":
     st.sidebar.markdown("---")
     st.sidebar.subheader("Analysis Parameters")
-    analyze_symbol = st.sidebar.text_input("Target Ticker", value="QQQ").upper()
+    
+    # Auto-reset the run state if the ticker changes so it doesn't show stale data
+    def reset_run_state():
+        if 'run_stock_analysis' in st.session_state:
+            st.session_state.run_stock_analysis = False
+            
+    analyze_symbol = st.sidebar.text_input("Target Ticker", value="QQQ", on_change=reset_run_state).upper()
     
     st.title(f"🛠️ {analyze_symbol} Master Analysis Deck")
     st.markdown("Consolidated view of all algorithmic trading signals and structural indicators.")
+    
+    if st.button("Run Master Analysis", type="primary", use_container_width=True):
+        st.session_state.run_stock_analysis = True
+        
+    st.markdown("---")
     
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Signal 1 - MA", 
@@ -232,7 +243,7 @@ elif page == "Stock Analysis":
         st.title(f"🧪 Signal 1 - MA: {analyze_symbol} Multi-Timeframe Monitor")
         st.markdown("Real-time automated evaluation across 5m, 15m, 1h, and 1d timeframes.")
         
-        if st.button("Run Multi-Timeframe Scan", type="primary", key="btn_sig1"):
+        if st.session_state.get('run_stock_analysis', False):
             with st.spinner(f"Fetching and analyzing multi-timeframe data for {analyze_symbol}..."):
                 
                 timeframes = ["5m", "15m", "1h", "1d"]
@@ -455,12 +466,14 @@ elif page == "Stock Analysis":
                             
                             # Add Data Source Attribution
                             st.markdown("<br>", unsafe_allow_html=True)
-        
+        else:
+            st.info("Click 'Run Master Analysis' above to generate data for this module.")
+
     with tab2:
         st.title(f"🚀 Signal 2: {analyze_symbol} 15-Minute ORB Strategy")
         st.markdown("Automated detection of the Opening Range Breakout (09:30 - 09:45 EST). Monitors 5-minute candles for breakout signals.")
         
-        if st.button("Detect ORB Signals", type="primary", key="btn_sig2"):
+        if st.session_state.get('run_stock_analysis', False):
             with st.spinner(f"Analyzing {analyze_symbol} 5m footprint..."):
                 try:
                     alpaca_key = st.secrets["alpaca"]["API_KEY"]
@@ -593,12 +606,14 @@ elif page == "Stock Analysis":
     
                 except Exception as e:
                     st.error(f"Error processing ORB: {e}")
-        
+        else:
+            st.info("Click 'Run Master Analysis' above to generate data for this module.")
+
     with tab3:
         st.title(f"⚖️ Signal 3: {analyze_symbol} Daily Anchored VWAP")
         st.markdown("Automated detection of the current price relative to the Daily Volume Weighted Average Price (VWAP).")
         
-        if st.button("Calculate VWAP", type="primary", key="btn_sig3"):
+        if st.session_state.get('run_stock_analysis', False):
             with st.spinner(f"Analyzing {analyze_symbol} VWAP..."):
                 try:
                     alpaca_key = st.secrets["alpaca"]["API_KEY"]
@@ -711,12 +726,14 @@ elif page == "Stock Analysis":
     
                 except Exception as e:
                     st.error(f"Error processing VWAP: {e}")
-        
+        else:
+            st.info("Click 'Run Master Analysis' above to generate data for this module.")
+
     with tab4:
         st.title("📊 Signal 4: Daily High & Low Divergence Tracker")
         st.markdown("Monitor real-time percentage distances from the Daily High, Daily Low, and Yesterday's Close across an entire watchlist.")
         
-        if st.button("Run Watchlist Scan", type="primary", key="btn_sig4"):
+        if st.session_state.get('run_stock_analysis', False):
             tickers = [analyze_symbol]
             
             if not tickers:
@@ -859,12 +876,14 @@ elif page == "Stock Analysis":
                     
                 except Exception as e:
                     st.error(f"Error executing scanner: {e}")
-        
+        else:
+            st.info("Click 'Run Master Analysis' above to generate data for this module.")
+
     with tab5:
         st.title(f"🌅 Signal 5: {analyze_symbol} Pre-Market Range")
         st.markdown("Isolates today's extended hours trading session (04:00 AM - 09:30 AM EST) to extract the absolute PM High and PM Low.")
         
-        if st.button("Calculate PM Range", type="primary", key="btn_sig5"):
+        if st.session_state.get('run_stock_analysis', False):
             with st.spinner(f"Fetching extended hours data for {analyze_symbol}..."):
                 try:
                     alpaca_key = st.secrets["alpaca"]["API_KEY"]
@@ -967,12 +986,14 @@ elif page == "Stock Analysis":
                         
                 except Exception as e:
                     st.error(f"Error fetching PM range: {e}")
-        
+        else:
+            st.info("Click 'Run Master Analysis' above to generate data for this module.")
+
     with tab6:
         st.title(f"🧱 {analyze_symbol} Institutional Support & Resistance")
         st.markdown("Algorithmic mapping of the 4 closest Daily and Weekly structural pivot levels based on 6 months of historical data.")
         
-        if st.button("Calculate Core Levels", type="primary", key="btn_sig6"):
+        if st.session_state.get('run_stock_analysis', False):
             with st.spinner(f"Mapping structural geometry for {analyze_symbol}..."):
                 try:
                     alpaca_key = st.secrets["alpaca"]["API_KEY"]
@@ -1129,4 +1150,6 @@ elif page == "Stock Analysis":
     
                 except Exception as e:
                     st.error(f"Error calculating levels: {e}")
-        
+        else:
+            st.info("Click 'Run Master Analysis' above to generate data for this module.")
+
